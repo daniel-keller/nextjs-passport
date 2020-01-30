@@ -1,25 +1,24 @@
-require("dotenv").config();
-const express = require("express");
-const http = require("http");
-const next = require("next");
-const session = require("express-session");
-const passport = require("passport");
-const Auth0Strategy = require("passport-auth0");
+require('dotenv').config();
+const express = require('express');
+const http = require('http');
+const next = require('next');
+const bodyParser = require("body-parser");
+const session = require('express-session');
+const passport = require('passport');
+const LocalStrategy = require('passport-local').Strategy;
 const uid = require('uid-safe');
-const authRoutes = require("./auth-routes");
-const thoughtsAPI = require("./thoughts-api");
 
-const dev = process.env.NODE_ENV !== "production";
+const dev = process.env.NODE_ENV !== 'production';
 const app = next({
   dev,
-  dir: "./src"
+  dir: './src'
 });
 const handle = app.getRequestHandler();
 
 app.prepare().then(() => {
   const server = express();
 
-  // 2 -
+  // 2 - Session setup
   const sessionConfig = {
     secret: uid.sync(18),
     cookie: {
@@ -30,42 +29,59 @@ app.prepare().then(() => {
   };
   server.use(session(sessionConfig));
 
-  // 3 - configuring Auth0Strategy
-  const auth0Strategy = new Auth0Strategy(
-    {
-      domain: process.env.AUTH0_DOMAIN,
-      clientID: process.env.AUTH0_CLIENT_ID,
-      clientSecret: process.env.AUTH0_CLIENT_SECRET,
-      callbackURL: process.env.AUTH0_CALLBACK_URL
-    },
-    function(accessToken, refreshToken, extraParams, profile, done) {
-      return done(null, profile);
-    }
+  server.use(bodyParser.urlencoded({ extended: false }))
+  server.use(bodyParser.json());
+
+  // 3 - configuring Passport LocalStrategy
+  passport.use(
+    new LocalStrategy(
+      (username, password, done) => {
+        return done(null, username);
+      }
+    )
   );
 
   // 4 - configuring Passport
-  passport.use(auth0Strategy);
-  passport.serializeUser((user, done) => done(null, user));
-  passport.deserializeUser((user, done) => done(null, user));
+  passport.serializeUser((user, done) => (done(null, user)));
+  passport.deserializeUser((user, done) => (done(null, user)));
 
   // 5 - adding Passport and authentication routes
   server.use(passport.initialize());
   server.use(passport.session());
-  server.use(authRoutes);
 
-  server.use(thoughtsAPI);
+  // method to check passport authentication
+  const isAuthenticated = (req, res, next) => {
+    console.log(req.url, ': ', req.user);
+    if (req.isAuthenticated()) {
+      return next();
+    }
+    return res.redirect('/login');
+  }
 
-  // 6 - you are restricting access to some routes
-  const restrictAccess = (req, res, next) => {
-    if (!req.isAuthenticated()) return res.redirect("/login");
-    next();
-  };
+  // restricted page routes
+  server.use('/profile', isAuthenticated);
 
-  server.use("/profile", restrictAccess);
-  server.use("/share-thought", restrictAccess);
+  // API routes
+  server.post('/login',
+    passport.authenticate('local', { failureRedirect: '/login' }),
+    function(req, res) {
+      res.redirect('/profile');
+  });
 
-  // handling everything else with Next.js
-  server.get("*", handle);
+  server.get("/api/thoughts", (req, res) => {
+    res.send([
+      { _id: 456, message: "I'm watching Netflix.", author: "unknown" }
+    ]);
+  });
+
+  server.get("/api/protected/thoughts", isAuthenticated, (req, res) => {
+    res.send([
+      { _id: 123, message: "I love pepperoni pizza!", author: "unknown" },
+    ]);
+  });
+
+  // all other page routes
+  server.get('*', handle);
 
   http.createServer(server).listen(process.env.PORT, () => {
     console.log(`listening on port ${process.env.PORT}`);

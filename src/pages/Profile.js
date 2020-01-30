@@ -1,25 +1,23 @@
-import styled from "styled-components";
+import fetch from "isomorphic-fetch";
 
-const Picture = styled.img`
-  border-radius: 50%;
-  border: 3px solid white;
-  width: 100px;
-`;
-
-function Profile({ user }) {
+function Profile(props) {
   return (
     <div>
-      <h2>
-        <Picture src={user.picture} alt={user.displayName} /> Hello, {user.displayName}
-      </h2>
       <p>This is what we know about you:</p>
       <ul>
-        { Object.keys(user).map(key => (
-          <li key={key}>{key}: {user[key].toString()}</li>
-        ))}
+        {JSON.stringify(props.thoughts)}
       </ul>
     </div>
   );
 }
+
+Profile.getInitialProps = async ({ req }) => {
+  const baseURL = req ? `${req.protocol}://${req.get("Host")}` : "";
+  const res = await fetch(`${baseURL}/api/protected/thoughts`);
+
+  return {
+    thoughts: await res.json()
+  };
+};
 
 export default Profile;
